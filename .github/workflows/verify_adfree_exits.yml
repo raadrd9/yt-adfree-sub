@@ -1,0 +1,55 @@
+name: Verify Ad-Free Exit Nodes
+
+on:
+  schedule:
+    # Off-peak minute offset (minute 17) every 6 hours to avoid top-of-hour queue drops
+    - cron: '17 */6 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: verify-adfree-exits
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install latest Xray-core binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R XTLS/Xray-core -p "Xray-linux-64.zip" -O /tmp/xray.zip
+          sudo unzip -q -o /tmp/xray.zip xray geoip.dat geosite.dat -d /usr/local/bin/
+          sudo chmod +x /usr/local/bin/xray
+
+      - name: Run True Exit-IP Verification
+        run: python3 scripts/verify_exits.py
+
+      - name: Commit verified subscription & reset 60-day inactivity timer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p out
+          touch out/sub.txt out/sub_base64.txt
+          git add out/sub.txt out/sub_base64.txt
+          git commit --allow-empty -m "chore(sub): verified exit-IP update $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          git push
